@@ -1,0 +1,76 @@
+// Server for SocketH-Myr
+
+use std
+use thread
+
+const listener = {addr : byte[:]
+	var afd
+	
+	std.put("Address: {}\n", addr)
+	std.put("Listening…\n")
+
+	match std.announce(addr)
+	| `std.Ok	f:	afd = f
+	| `std.Err	e:	std.fatal("err: couldn't announce: {}\n", e)
+	;;
+
+	// Core listen loop
+	while true
+		match std.accept(afd)
+		| `std.Ok	fd:
+			thread.spawn({
+				while true
+					var buf : byte[512]
+					// Core connection handler
+					match std.read(fd, buf[:])
+					| `std.Ok	n:
+						// Successful input line read
+						std.writeall(fd, buf[:n])
+
+						for b : buf[:n]
+							std.put("byte = {}\n", b)
+						;;
+
+						// Match input line
+						match buf[:n]
+						| "!quit":
+							// Close the client connection
+							std.put("info: clean dc\n")
+							break
+							std.close(fd)
+						| "":
+							// Empty line
+
+						| s:
+							std.put("info: unknown cmd - {}\n", s)
+						;;
+
+					| `std.Err	e: 
+						std.put("info: disconnected: {}\n", e)
+						break
+					;;
+	
+					std.nanosleep(5_000_000)
+				;;
+			})
+
+		| `std.Err	e:
+			std.put("err: could not accept: {}\n", e)
+			break
+		;;
+		std.nanosleep(5_000_000)
+	;;
+}
+
+const main = {args : byte[:][:]
+	// Print cmdline args
+	for a : args
+		std.put("arg = {}\n", a)
+	;;
+
+	var addr = "tcp!*!9090"
+
+	thread.spawn({
+		listener(addr)
+	})
+}
