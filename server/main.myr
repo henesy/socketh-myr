@@ -16,23 +16,57 @@ const listener = {addr : byte[:]
 
 	// Core listen loop
 	while true
+		std.put("listen tick\n")
 		match std.accept(afd)
 		| `std.Ok	fd:
+			std.put("new thread\n")
 			thread.spawn({
 				while true
+					std.put("while tick\n")
 					var buf : byte[512]
+
 					// Core connection handler
 					match std.read(fd, buf[:])
 					| `std.Ok	n:
-						// Successful input line read
-						std.writeall(fd, buf[:n])
-
-						for b : buf[:n]
-							std.put("byte = {}\n", b)
+						// 0 is defined as EOF
+						if n == 0
+							break
 						;;
 
+						// Successful input line read
+						//std.writeall(fd, buf[:n])
+						std.write(fd, "ack\n")
+
+						std.put("buf = {}\n", buf)
+						std.put("n = {}\n", n)
+
+						var cnt
+						for cnt = 0; cnt < buf.len; cnt++
+							match buf[cnt]
+							| 0:
+								break
+							| 10:
+								// \n
+								break
+							| 13:
+								// \r
+								break
+							| _:
+							;;
+						;;
+
+						// TODO - why is `n` overflowed?
+						std.put("cnt = {}\n", cnt)
+						std.put("buf[:cnt] = {}\n", buf[:cnt])
+						
+						var line = buf[:cnt]
+
+
+						// TODO - never get past this line?
+						std.put("line = {}\n", line)
+
 						// Match input line
-						match buf[:n]
+						match line
 						| "!quit":
 							// Close the client connection
 							std.put("info: clean dc\n")
@@ -40,17 +74,21 @@ const listener = {addr : byte[:]
 							std.close(fd)
 						| "":
 							// Empty line
-
+							;
 						| s:
 							std.put("info: unknown cmd - {}\n", s)
 						;;
+
+						std.put("end of command match\n")
 
 					| `std.Err	e: 
 						std.put("info: disconnected: {}\n", e)
 						break
 					;;
 	
-					std.nanosleep(5_000_000)
+					std.put("sleeping...\n")
+
+					std.nanosleep(5_000)
 				;;
 			})
 
@@ -58,7 +96,8 @@ const listener = {addr : byte[:]
 			std.put("err: could not accept: {}\n", e)
 			break
 		;;
-		std.nanosleep(5_000_000)
+
+		std.nanosleep(5_000)
 	;;
 }
 
