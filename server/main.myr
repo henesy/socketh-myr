@@ -27,12 +27,10 @@ const listener = {addr : byte[:]
 
 					// Core connection handler
 					match std.read(fd, buf[:])
-					| `std.Ok	n:
-						// 0 is defined as EOF
-						if n == 0
-							break
-						;;
+					| `std.Ok	0:
+						break
 
+					| `std.Ok	n:
 						// Successful input line read
 						//std.writeall(fd, buf[:n])
 						std.write(fd, "ack\n")
@@ -112,4 +110,8 @@ const main = {args : byte[:][:]
 	thread.spawn({
 		listener(addr)
 	})
+
+	while true
+		std.nanosleep(5_000_000_000)
+	;;
 }
