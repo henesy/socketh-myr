@@ -5,9 +5,7 @@ use thread
 
 // Handles incoming connections (one per connection)
 const handler = {fd : std.fd
-	var run = true
-
-	while run
+	while true
 		var buf : byte[512]
 
 		std.write(fd, "» ")
@@ -15,7 +13,7 @@ const handler = {fd : std.fd
 		// Core connection handler
 		match std.read(fd, buf[:])
 		| `std.Ok	0:
-			break
+			-> void
 
 		| `std.Ok	n:
 			// Successful input line read
@@ -45,8 +43,7 @@ const handler = {fd : std.fd
 				std.put("info: clean dc\n")
 				std.write(fd, "Goodbye! ☺\n")
 				std.close(fd)
-				run = false
-				break
+				-> void
 			| "":
 				// Empty line
 				;
@@ -56,13 +53,11 @@ const handler = {fd : std.fd
 
 		| `std.Err	e: 
 			std.put("info: disconnected: {}\n", e)
-			break
+			-> void
 		;;
 
 		std.nanosleep(5_000_000)
 	;;
-
-	std.put("info: end conn thread\n")
 }
 
 const listener = {addr : byte[:]
@@ -86,7 +81,7 @@ const listener = {addr : byte[:]
 
 		| `std.Err	e:
 			std.put("err: could not accept: {}\n", e)
-			break
+			-> void
 		;;
 
 		std.nanosleep(5_000_000)
@@ -105,6 +100,7 @@ const main = {args : byte[:][:]
 		listener(addr)
 	})
 
+	// Main spin loop
 	while true
 		std.nanosleep(5_000_000_000)
 	;;
