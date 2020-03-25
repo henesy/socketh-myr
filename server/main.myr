@@ -3,38 +3,83 @@
 use std
 use thread
 
+
+const	maxconns	= 100			// Maximum open clients
+
+var		connmtx		: thread.mutex	// Lock for conns[], I miss channels
+var		conns		: std.fd[:]		// All open connections
+
+
+// Sends a message to all connections
+const sendmsg = {
+	thread.mtxlock(&connmtx)
+	
+	// TODO
+	
+	thread.mtxunlock(&connmtx)
+}
+
+// Removes a fd from open connections
+const delconn = {
+	thread.mtxlock(&connmtx)
+	
+	// TODO
+	
+	thread.mtxunlock(&connmtx)
+}
+
+// Adds an fd to the open connections
+const addconn = {
+	thread.mtxlock(&connmtx)
+	
+	// TODO
+	
+	thread.mtxunlock(&connmtx)
+}
+
 // Handles incoming connections (one per connection)
 const handler = {fd : std.fd
+	var username : byte[:]
+	
+	std.write(fd, "What is your username?: ")
+
+	match std.read(fd, username[:])
+	| `std.Ok	0:
+		std.close(fd)
+		-> void
+
+	| `std.Ok	n:
+		username = minimize(username[:n])
+		std.put("→ {}\n", username)
+
+	| `std.Err	e: 
+		std.put("err: couldn't read username\n")
+		std.close(fd)
+		-> void
+	;;
+	
+	// Standard disconnect logic
+	var dc = {
+		std.close(fd)
+		std.put("← {}\n", username)
+	}
+
+	// Main chat loop
 	while true
-		var buf : byte[512]
+		var buf : byte[:]
 
 		std.write(fd, "» ")
 
 		// Core connection handler
 		match std.read(fd, buf[:])
 		| `std.Ok	0:
+			// EOF
+			dc()
 			-> void
 
 		| `std.Ok	n:
 			// Successful input line read
-
-			// We truncate once we find one of {\0, \n, \r}
-			var cnt
-			for cnt = 0; cnt < n; cnt++
-				match buf[cnt]
-				| 0:
-					break
-				| 10:
-					// \n
-					break
-				| 13:
-					// \r
-					break
-				| _:
-				;;
-			;;
-			
-			var line = buf[:cnt]
+			var line = minimize(buf[:])
 
 			// Match input line
 			match line
@@ -42,23 +87,45 @@ const handler = {fd : std.fd
 				// Close the client connection
 				std.put("info: clean dc\n")
 				std.write(fd, "Goodbye! ☺\n")
-				std.close(fd)
+				dc()
 				-> void
 			| "":
 				// Empty line
 				;
 			| s:
-				std.put("info: unknown cmd - {}\n", s)
+				// Chat message
+				std.put("{} : {}\n", username, minimize(s))
 			;;
 
 		| `std.Err	e: 
-			std.put("info: disconnected: {}\n", e)
+			std.put("info: hard dc: {}\n", e)
+			dc()
 			-> void
 		;;
 
 		std.nanosleep(5_000_000)
 	;;
 }
+
+
+const main = {args : byte[:][:]
+	// Print cmdline args
+	for a : args
+		std.put("arg = {}\n", a)
+	;;
+
+	var addr = "tcp!*!9090"
+
+	thread.spawn({
+		listener(addr)
+	})
+
+	// Main spin loop
+	while true
+		std.nanosleep(5_000_000_000)
+	;;
+}
+
 
 const listener = {addr : byte[:]
 	var afd
@@ -88,20 +155,23 @@ const listener = {addr : byte[:]
 	;;
 }
 
-const main = {args : byte[:][:]
-	// Print cmdline args
-	for a : args
-		std.put("arg = {}\n", a)
+// Minimize the input line
+const minimize = {buf : byte[:]
+	// We truncate once we find one of {\0, \n, \r}
+	var cnt
+	for cnt = 0; cnt < buf.len; cnt++
+		match buf[cnt]
+		| 0:
+			break
+		| 10:
+			// \n
+			break
+		| 13:
+			// \r
+			break
+		| _:
+		;;
 	;;
-
-	var addr = "tcp!*!9090"
-
-	thread.spawn({
-		listener(addr)
-	})
-
-	// Main spin loop
-	while true
-		std.nanosleep(5_000_000_000)
-	;;
+	
+	-> buf[:cnt]
 }
