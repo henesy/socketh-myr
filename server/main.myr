@@ -11,28 +11,46 @@ var		conns		: std.fd[:]		// All open connections
 
 
 // Sends a message to all connections
-const sendmsg = {
+const sendmsg = {msg : byte[:]
 	thread.mtxlock(&connmtx)
 	
-	// TODO
+	for fd : conns
+		std.write(fd, msg)
+	;;
 	
 	thread.mtxunlock(&connmtx)
 }
 
 // Removes a fd from open connections
-const delconn = {
+const delconn = {fd : std.fd
 	thread.mtxlock(&connmtx)
 	
-	// TODO
+	var i
+	for i = 0; i < conns.len; i++
+		if conns[i] == fd 
+			// Cut the fd out
+			var left = conns[:i]
+			var right
+
+			if i == (conns.len - 1)
+				right = conns[:0]
+			else
+				right = conns[i+1:]
+			;;
+			
+			std.slfree(conns)
+			conns = std.sljoin(&left, right)
+		;;
+	;;
 	
 	thread.mtxunlock(&connmtx)
 }
 
 // Adds an fd to the open connections
-const addconn = {
+const addconn = {fd : std.fd
 	thread.mtxlock(&connmtx)
 	
-	// TODO
+	conns = std.slpush(&conns, fd)
 	
 	thread.mtxunlock(&connmtx)
 }
@@ -50,7 +68,10 @@ const handler = {fd : std.fd
 
 	| `std.Ok	n:
 		username = minimize(username[:n])
-		std.put("→ {}\n", username)
+		addconn(fd)
+		var msg = std.fmt("→ {}\n", username)
+		std.put(msg)
+		sendmsg(msg)
 
 	| `std.Err	e: 
 		std.put("err: couldn't read username\n")
@@ -61,7 +82,10 @@ const handler = {fd : std.fd
 	// Standard disconnect logic
 	var dc = {
 		std.close(fd)
-		std.put("← {}\n", username)
+		var msg = std.fmt("← {}\n", username)
+		std.put(msg)
+		sendmsg(msg)
+		delconn(fd)
 	}
 
 	// Main chat loop
@@ -79,7 +103,8 @@ const handler = {fd : std.fd
 
 		| `std.Ok	n:
 			// Successful input line read
-			var line = minimize(buf[:])
+			buf = buf[:n]
+			var line = minimize(buf)
 
 			// Match input line
 			match line
@@ -94,7 +119,9 @@ const handler = {fd : std.fd
 				;
 			| s:
 				// Chat message
-				std.put("{} : {}\n", username, minimize(s))
+				var msg = std.fmt("{} : {}\n", username, minimize(s))
+				std.put(msg)
+				sendmsg(msg)
 			;;
 
 		| `std.Err	e: 
@@ -115,6 +142,8 @@ const main = {args : byte[:][:]
 	;;
 
 	var addr = "tcp!*!9090"
+	
+	conns = std.slalloc(maxconns)
 
 	thread.spawn({
 		listener(addr)
