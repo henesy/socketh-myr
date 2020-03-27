@@ -11,6 +11,11 @@ const	maxusrname	= 25				// Maximum user name length
 var		connmtx		: thread.mutex		// Lock for conns[], I miss channels
 var		conns		: std.fd[maxconns]	// All open connections
 
+var		chatty							// Verbose debug logging
+var		showprompt						// Enable showing the prompt
+var		prompt							// Prompt to show, if any
+var		sleeptime						// Period in ns to sleep
+
 
 // Sends a message to all connections
 const sendmsg = {msg : byte[:]
@@ -71,7 +76,7 @@ const handler = {fd : std.fd
 		username = minimize(usrbuf[:])
 		addconn(fd)
 		var msg = std.fmt("→ {}\n", username)
-		std.put(msg)
+		std.put(std.fmt("join: {}", msg))
 		sendmsg(msg)
 
 	| `std.Err	e: 
@@ -84,7 +89,7 @@ const handler = {fd : std.fd
 	var dc = {
 		std.close(fd)
 		var msg = std.fmt("← {}\n", username)
-		std.put(msg)
+		std.put(std.fmt("part: {}", msg))
 		sendmsg(msg)
 		delconn(fd)
 	}
@@ -93,7 +98,9 @@ const handler = {fd : std.fd
 	while true
 		var buf : byte[maxmsg]
 
-		std.write(fd, "» ")
+		if showprompt
+			std.write(fd, prompt)
+		;;
 
 		// Core connection handler
 		match std.read(fd, buf[:])
@@ -110,7 +117,7 @@ const handler = {fd : std.fd
 			match line
 			| "!quit":
 				// Close the client connection
-				std.put("info: clean dc\n")
+				std.put("info: clean dc by {}\n", username)
 				std.write(fd, "Goodbye! ☺\n")
 				dc()
 				-> void
@@ -120,53 +127,88 @@ const handler = {fd : std.fd
 			| s:
 				// Chat message
 				var msg = std.fmt("{} : {}\n", username, minimize(s))
-				std.put(msg)
+				std.put(std.fmt("msg: {}", msg))
 				sendmsg(msg)
 			;;
 
 		| `std.Err	e: 
-			std.put("info: hard dc: {}\n", e)
+			std.put("info: hard dc by {}: {}\n", username, e)
 			dc()
 			-> void
 		;;
 
-		std.nanosleep(5_000_000)
+		std.nanosleep(sleeptime)
 	;;
 }
 
 
+// Server for a simple chat protocol
 const main = {args : byte[:][:]
-	// Print cmdline args
-	for a : args
-		std.put("arg = {}\n", a)
-	;;
-
+	var cmd
 	var addr = "tcp!*!9090"
+	sleeptime = 5_000_000
+	showprompt = false
+
+	// Commandline argument parsing
+	cmd = std.optparse(args, &[
+	    .argdesc = "<nil>",
+	    .opts = [
+	        [.opt='D',						.desc = "enable verbose logging"],
+	        [.opt='P',						.desc = "enable prompt display"],
+	        [.opt='p',	.arg = "prompt",	.desc = "set prompt to 'prompt'"],
+	        [.opt='T',	.arg = "period",	.desc = "set sleep time to 'period' ns"],
+	    ][:]
+	])
+
+	for opt : cmd.opts
+	    match opt
+	    | ('D', ""):
+	    	chatty = true
+	    | ('P', ""):
+	    	showprompt = true
+	    | ('p', arg):
+	    	prompt = arg
+	    | ('T', arg):
+			match std.intparse(arg)
+			| `std.Some v: 
+	    		sleeptime = v
+			| `std.None:
+				std.fatal("err: invalid argument for sleeptime")
+			;;
+	    | _:
+	    	std.fatal("unreachable\n")
+	    ;;
+	;;
 	
+	// Initialize connections
 	var i
 	for i = 0; i < conns.len; i++
 		conns[i] = 0
 	;;
 
+	// Start background listener
 	thread.spawn({
 		listener(addr)
 	})
 
 	// Main spin loop
 	while true
-		std.nanosleep(5_000_000_000)
+		std.nanosleep(sleeptime)
 	;;
 }
 
 
+// Listens for incoming connections, accepting if able
 const listener = {addr : byte[:]
 	var afd
 	
 	std.put("Listening on {}…\n", addr)
 
 	match std.announce(addr)
-	| `std.Ok	f:	afd = f
-	| `std.Err	e:	std.fatal("err: couldn't announce: {}\n", e)
+	| `std.Ok	fd:
+		afd = fd
+	| `std.Err	e:
+		std.fatal("err: couldn't announce: {}\n", e)
 	;;
 
 	// Core listen loop
@@ -178,15 +220,15 @@ const listener = {addr : byte[:]
 			})
 
 		| `std.Err	e:
-			std.put("err: could not accept: {}\n", e)
+			std.put("err: couldn't accept: {}\n", e)
 			-> void
 		;;
 
-		std.nanosleep(5_000_000)
+		std.nanosleep(sleeptime)
 	;;
 }
 
-// Minimize the input line
+// Minimize the input line to [0 , {\0 \n \r})
 const minimize = {buf : byte[:]
 	// We truncate once we find one of {\0, \n, \r}
 	var cnt
