@@ -4,10 +4,12 @@ use std
 use thread
 
 
-const	maxconns	= 100			// Maximum open clients
+const	maxconns	= 100				// Maximum open clients
+const	maxmsg		= 256				// Maximum message length
+const	maxusrname	= 25				// Maximum user name length
 
-var		connmtx		: thread.mutex	// Lock for conns[], I miss channels
-var		conns		: std.fd[:]		// All open connections
+var		connmtx		: thread.mutex		// Lock for conns[], I miss channels
+var		conns		: std.fd[maxconns]	// All open connections
 
 
 // Sends a message to all connections
@@ -15,7 +17,9 @@ const sendmsg = {msg : byte[:]
 	thread.mtxlock(&connmtx)
 	
 	for fd : conns
-		std.write(fd, msg)
+		if fd != 0
+			std.write(fd, msg)
+		;;
 	;;
 	
 	thread.mtxunlock(&connmtx)
@@ -27,19 +31,9 @@ const delconn = {fd : std.fd
 	
 	var i
 	for i = 0; i < conns.len; i++
-		if conns[i] == fd 
-			// Cut the fd out
-			var left = conns[:i]
-			var right
-
-			if i == (conns.len - 1)
-				right = conns[:0]
-			else
-				right = conns[i+1:]
-			;;
-			
-			std.slfree(conns)
-			conns = std.sljoin(&left, right)
+		if fd == conns[i]
+			conns[i] = 0
+			break
 		;;
 	;;
 	
@@ -50,24 +44,31 @@ const delconn = {fd : std.fd
 const addconn = {fd : std.fd
 	thread.mtxlock(&connmtx)
 	
-	conns = std.slpush(&conns, fd)
+	var i
+	for i = 0; i < conns.len; i++
+		if conns[i] == 0
+			conns[i] = fd
+			break
+		;;
+	;;
 	
 	thread.mtxunlock(&connmtx)
 }
 
 // Handles incoming connections (one per connection)
 const handler = {fd : std.fd
+	var usrbuf : byte[maxusrname]
 	var username : byte[:]
 	
 	std.write(fd, "What is your username?: ")
 
-	match std.read(fd, username[:])
+	match std.read(fd, usrbuf[:])
 	| `std.Ok	0:
 		std.close(fd)
 		-> void
 
 	| `std.Ok	n:
-		username = minimize(username[:n])
+		username = minimize(usrbuf[:])
 		addconn(fd)
 		var msg = std.fmt("→ {}\n", username)
 		std.put(msg)
@@ -90,7 +91,7 @@ const handler = {fd : std.fd
 
 	// Main chat loop
 	while true
-		var buf : byte[:]
+		var buf : byte[maxmsg]
 
 		std.write(fd, "» ")
 
@@ -103,8 +104,7 @@ const handler = {fd : std.fd
 
 		| `std.Ok	n:
 			// Successful input line read
-			buf = buf[:n]
-			var line = minimize(buf)
+			var line = minimize(buf[:])
 
 			// Match input line
 			match line
@@ -143,7 +143,10 @@ const main = {args : byte[:][:]
 
 	var addr = "tcp!*!9090"
 	
-	conns = std.slalloc(maxconns)
+	var i
+	for i = 0; i < conns.len; i++
+		conns[i] = 0
+	;;
 
 	thread.spawn({
 		listener(addr)
@@ -159,8 +162,7 @@ const main = {args : byte[:][:]
 const listener = {addr : byte[:]
 	var afd
 	
-	std.put("Address: {}\n", addr)
-	std.put("Listening…\n")
+	std.put("Listening on {}…\n", addr)
 
 	match std.announce(addr)
 	| `std.Ok	f:	afd = f
