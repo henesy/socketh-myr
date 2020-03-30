@@ -1,0 +1,170 @@
+// Shell client for SocketH-Myr
+
+use std
+use thread
+
+const   maxmsg	  = 256			   // Maximum message length
+
+var		chatty							// Verbose debug logging
+var		showprompt						// Enable showing the prompt
+var		prompt							// Prompt to show, if any
+var		sleeptime						// Period in ns to sleep
+var		connected						// Whether we are connected
+
+
+// Receive messages in the background from server
+const receiver = {fd : std.fd
+	var dc = {
+		connected = false
+		std.close(fd)
+	}
+
+	while connected
+		var buf : byte[maxmsg]
+
+		match std.read(fd, buf[:])
+		| `std.Ok   0:
+			std.put("err: got 0 byte read from server, disconnecting…\n")
+			dc()
+			-> void
+
+		| `std.Ok   n:
+			std.put(buf[:n])
+
+		| `std.Err  e:
+			std.put("err: couldn't read from server, ending…\n")
+			dc()
+			-> void
+		;;
+	;;
+}
+
+
+// Server for a simple chat protocol
+const main = {args : byte[:][:]
+	var cmd
+	var addr = "tcp!localhost!9090"
+	sleeptime = 5_000_000
+	showprompt = false
+	var srvfd : std.fd
+	prompt = "»"
+
+	// Commandline argument parsing
+	cmd = std.optparse(args, &[
+		.argdesc = "",
+		.opts = [
+			[.opt='D',						.desc = "enable verbose logging"],
+			[.opt='P',						.desc = "enable prompt display"],
+			[.opt='p',	.arg = "prompt",	.desc = "set prompt to 'prompt'"],
+			[.opt='T',	.arg = "period",	.desc = "set sleep time to 'period' ns"],
+			[.opt='a',	.arg = "address",	.desc = "dial server at 'address'"],
+		][:]
+	])
+
+	for opt : cmd.opts
+		match opt
+		| ('D', ""):
+			chatty = true
+		| ('P', ""):
+			showprompt = true
+		| ('p', arg):
+			prompt = arg
+		| ('T', arg):
+			match std.intparse(arg)
+			| `std.Some v:
+				sleeptime = v
+			| `std.None:
+				std.fatal("err: invalid argument for sleeptime")
+			;;
+		| ('a', arg):
+			addr = arg
+		| _:
+			std.fatal("unreachable\n")
+		;;
+
+		std.nanosleep(sleeptime)
+	;;
+
+
+	std.put("Dialing {}…\n", addr)
+
+	match std.dial(addr)
+	| `std.Ok fd:
+		connected = true
+
+		// Start background listener
+		thread.spawn({
+			receiver(fd)
+		})
+
+		srvfd = fd
+
+	| `std.Err e:
+		std.fatal("err: unable to dial {} - {}\n", addr, e)
+	;;
+
+	var dc = {
+		connected = false
+		std.close(srvfd)
+	}
+
+	// Main spin loop
+	while connected
+		var buf : byte[maxmsg]
+
+		if showprompt
+			std.put("{} ", prompt)
+		;;
+
+		match std.read((0 : std.fd), buf[:])
+		| `std.Ok   0:
+			std.fatal("err: got 0 byte read from input, disconnecting…\n")
+			dc()
+			break
+
+		| `std.Ok   n:
+			std.writeall(srvfd, buf[:n])
+
+			// Handle special commands
+			match minimize(buf[:n])
+			| "!quit":
+				dc()
+				break
+
+			| _:
+				;
+			;;
+
+		| `std.Err  e:
+			std.put("err: couldn't read from input, ending…\n")
+			dc()
+			break
+		;;
+
+		std.nanosleep(sleeptime)
+	;;
+
+	connected = false
+}
+
+
+// Minimize the input line to [0 , {\0 \n \r})
+const minimize = {buf : byte[:]
+	// We truncate once we find one of {\0, \n, \r}
+	var cnt
+	for cnt = 0; cnt < buf.len; cnt++
+		match buf[cnt]
+		| 0:
+			break
+		| 10:
+			// \n
+			break
+		| 13:
+			// \r
+			break
+		| _:
+		;;
+	;;
+
+	-> buf[:cnt]
+}

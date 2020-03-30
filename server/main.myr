@@ -20,20 +20,20 @@ var		sleeptime						// Period in ns to sleep
 // Sends a message to all connections
 const sendmsg = {msg : byte[:]
 	thread.mtxlock(&connmtx)
-	
+
 	for fd : conns
 		if fd != 0
 			std.write(fd, msg)
 		;;
 	;;
-	
+
 	thread.mtxunlock(&connmtx)
 }
 
 // Removes a fd from open connections
 const delconn = {fd : std.fd
 	thread.mtxlock(&connmtx)
-	
+
 	var i
 	for i = 0; i < conns.len; i++
 		if fd == conns[i]
@@ -41,14 +41,14 @@ const delconn = {fd : std.fd
 			break
 		;;
 	;;
-	
+
 	thread.mtxunlock(&connmtx)
 }
 
 // Adds an fd to the open connections
 const addconn = {fd : std.fd
 	thread.mtxlock(&connmtx)
-	
+
 	var i
 	for i = 0; i < conns.len; i++
 		if conns[i] == 0
@@ -56,7 +56,7 @@ const addconn = {fd : std.fd
 			break
 		;;
 	;;
-	
+
 	thread.mtxunlock(&connmtx)
 }
 
@@ -64,7 +64,7 @@ const addconn = {fd : std.fd
 const handler = {fd : std.fd
 	var usrbuf : byte[maxusrname]
 	var username : byte[:]
-	
+
 	std.write(fd, "What is your username?: ")
 
 	match std.read(fd, usrbuf[:])
@@ -79,12 +79,12 @@ const handler = {fd : std.fd
 		std.put(std.fmt("join: {}", msg))
 		sendmsg(msg)
 
-	| `std.Err	e: 
+	| `std.Err	e:
 		std.put("err: couldn't read username\n")
 		std.close(fd)
 		-> void
 	;;
-	
+
 	// Standard disconnect logic
 	var dc = {
 		std.close(fd)
@@ -131,7 +131,7 @@ const handler = {fd : std.fd
 				sendmsg(msg)
 			;;
 
-		| `std.Err	e: 
+		| `std.Err	e:
 			std.put("info: hard dc by {}: {}\n", username, e)
 			dc()
 			-> void
@@ -151,12 +151,13 @@ const main = {args : byte[:][:]
 
 	// Commandline argument parsing
 	cmd = std.optparse(args, &[
-	    .argdesc = "<nil>",
+	    .argdesc = "",
 	    .opts = [
 	        [.opt='D',						.desc = "enable verbose logging"],
 	        [.opt='P',						.desc = "enable prompt display"],
 	        [.opt='p',	.arg = "prompt",	.desc = "set prompt to 'prompt'"],
 	        [.opt='T',	.arg = "period",	.desc = "set sleep time to 'period' ns"],
+	        [.opt='a',	.arg = "address",		.desc = "listen on dial string 'address'"],
 	    ][:]
 	])
 
@@ -170,16 +171,18 @@ const main = {args : byte[:][:]
 	    	prompt = arg
 	    | ('T', arg):
 			match std.intparse(arg)
-			| `std.Some v: 
+			| `std.Some v:
 	    		sleeptime = v
 			| `std.None:
 				std.fatal("err: invalid argument for sleeptime")
 			;;
+	    | ('a', arg):
+	    	addr = arg
 	    | _:
 	    	std.fatal("unreachable\n")
 	    ;;
 	;;
-	
+
 	// Initialize connections
 	var i
 	for i = 0; i < conns.len; i++
@@ -201,7 +204,7 @@ const main = {args : byte[:][:]
 // Listens for incoming connections, accepting if able
 const listener = {addr : byte[:]
 	var afd
-	
+
 	std.put("Listening on {}…\n", addr)
 
 	match std.announce(addr)
@@ -245,6 +248,6 @@ const minimize = {buf : byte[:]
 		| _:
 		;;
 	;;
-	
+
 	-> buf[:cnt]
 }
