@@ -30,4 +30,6 @@ Shclient on unix might be best paired with a wrapper like `rlwrap(1)`:
 
 ## Special commands
 
+| Command | Meaning          |
+| ------- | --------         |
 | `!quit` | clean disconnect |
